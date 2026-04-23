@@ -1,0 +1,7 @@
+"""Load the Celery app on Django startup so @shared_task tasks register."""
+
+from __future__ import annotations
+
+from config.celery import app as celery_app
+
+__all__ = ("celery_app",)

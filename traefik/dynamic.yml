@@ -1,0 +1,31 @@
+# Traefik v3 dynamic configuration (file provider).
+# Service hostnames (`web`, `frontend`) resolve via Docker's embedded DNS on
+# the `survey_edge` network.
+http:
+  routers:
+    survey-api:
+      rule: "Host(`survey-api.yousefgamal.com`)"
+      entryPoints:
+        - websecure
+      service: survey-api
+      tls:
+        certResolver: le
+
+    survey-ui:
+      rule: "Host(`survey.yousefgamal.com`)"
+      entryPoints:
+        - websecure
+      service: survey-ui
+      tls:
+        certResolver: le
+
+  services:
+    survey-api:
+      loadBalancer:
+        servers:
+          - url: "http://web:8000"
+
+    survey-ui:
+      loadBalancer:
+        servers:
+          - url: "http://frontend:3000"

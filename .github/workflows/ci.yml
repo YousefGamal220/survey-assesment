@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Install Poetry
+        run: pipx install poetry==2.0.1
+      - run: poetry install --no-root --with dev
+      - run: poetry run ruff check .
+      - run: poetry run ruff format --check .
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Install Poetry
+        run: pipx install poetry==2.0.1
+      - run: poetry install --no-root --with dev
+      - run: poetry run mypy apps config
+        env:
+          SECRET_KEY: ci-secret
+          JWT_SIGNING_KEY: ci-jwt
+          DATABASE_URL: sqlite:///:memory:
+          REDIS_URL: redis://localhost:6379/0
+          ALLOWED_HOSTS: "*"
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: survey
+          POSTGRES_PASSWORD: survey
+          POSTGRES_DB: survey
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U survey"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DJANGO_SETTINGS_MODULE: config.settings.test
+      SECRET_KEY: ci-secret
+      JWT_SIGNING_KEY: ci-jwt
+      DATABASE_URL: postgres://survey:survey@localhost:5432/survey
+      REDIS_URL: redis://localhost:6379/0
+      ALLOWED_HOSTS: "*"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Install Poetry
+        run: pipx install poetry==2.0.1
+      - run: poetry install --no-root --with dev
+      - run: poetry run pytest -v --cov --cov-report=xml
+
+  security:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Install Poetry
+        run: pipx install poetry==2.0.1
+      - run: poetry install --no-root --with dev
+      - run: poetry run bandit -r apps/
+      - run: poetry run pip-audit

@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Django
+db.sqlite3
+media/
+staticfiles/
+*.log
+
+# Env
+.env
+.env.local
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+.claude/
+
+# Docker
+docker/*.env
+
+# Agent / assistant context (not for the public repo)
+CLAUDE.md
+AGENTS.md
+docs/superpowers/

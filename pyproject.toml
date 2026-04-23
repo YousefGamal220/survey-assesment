@@ -1,0 +1,115 @@
+[project]
+name = "survey"
+version = "0.1.0"
+description = "Advanced Dynamic Survey Platform"
+authors = [{name = "Yousef Gamal"}]
+readme = "README.md"
+requires-python = ">=3.12,<4.0"
+dependencies = [
+    "django (>=6.0.4,<7.0.0)",
+    "djangorestframework (>=3.17.1,<4.0.0)",
+    "djangorestframework-simplejwt[crypto] (>=5.5.0,<6.0.0)",
+    "django-environ (>=0.13.0,<0.14.0)",
+    "psycopg2-binary (>=2.9.12,<3.0.0)",
+    "django-filter (>=25.2,<26.0)",
+    "drf-spectacular (>=0.29.0,<0.30.0)",
+    "celery (>=5.6.3,<6.0.0)",
+    "redis (>=7.4.0,<8.0.0)",
+    "django-redis (>=6.0.0,<7.0.0)",
+    "django-cryptography-django5 (>=2.2,<3.0)",
+    "django-guardian (>=3.3.1,<4.0.0)",
+    "django-ratelimit (>=4.1.0,<5.0.0)",
+    "python-json-logger (>=3.2.1,<4.0.0)",
+    "gunicorn (>=23.0.0,<24.0.0)",
+    "django-cors-headers (>=4.4.0)"
+]
+
+[tool.poetry]
+package-mode = false
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[dependency-groups]
+dev = [
+    "pytest (>=9.0.3,<10.0.0)",
+    "pytest-django (>=4.12.0,<5.0.0)",
+    "pytest-cov (>=7.1.0,<8.0.0)",
+    "factory-boy (>=3.3.3,<4.0.0)",
+    "ruff (>=0.15.11,<0.16.0)",
+    "mypy (>=1.20.1,<2.0.0)",
+    "django-stubs (>=6.0.3,<7.0.0)",
+    "djangorestframework-stubs (>=3.16.9,<4.0.0)",
+    "ipython (>=9.12.0,<10.0.0)",
+    "locust (>=2.43.4,<3.0.0)",
+    "bandit (>=1.9.4,<2.0.0)",
+    "pip-audit (>=2.10.0,<3.0.0)"
+]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings.test"
+python_files = ["tests.py", "test_*.py", "*_tests.py"]
+addopts = "-ra --strict-markers --cov=apps --cov-report=term-missing"
+testpaths = ["apps"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["migrations"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "DJ", "SIM", "S"]
+# S101: assert is pytest's backbone.
+# DJ008: __str__ isn't useful on abstract / test-only models.
+# DJ012: we intentionally pair managers (`objects` + `all_objects`) on tenant
+#        models — the canonical Django style rule fights that pattern.
+ignore = ["S101", "DJ008", "DJ012"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["S105", "S106"]
+"**/settings/*.py" = ["S105"]
+
+[tool.mypy]
+python_version = "3.12"
+plugins = ["mypy_django_plugin.main", "mypy_drf_plugin.main"]
+# Tests are full of factory-boy calls, fixtures, and dynamic attrs — annotating
+# them yields zero correctness and significant noise.
+exclude = ["migrations/", ".*/tests/.*"]
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+follow_imports = "silent"
+
+[[tool.mypy.overrides]]
+module = ["apps.*.migrations.*"]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = [
+    "celery.*",
+    "environ.*",
+    "factory.*",
+    "django_redis.*",
+    "django_ratelimit.*",
+    "rest_framework_simplejwt.*",
+]
+ignore_missing_imports = true
+
+[tool.django-stubs]
+django_settings_module = "config.settings.dev"
+
+[tool.coverage.run]
+source = ["apps"]
+omit = ["*/migrations/*", "*/tests/*", "*/apps.py"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_covered = false
+
+[tool.bandit]
+# Test files use hardcoded fixture passwords and assert statements by design.
+exclude_dirs = ["apps/*/tests", "apps/*/migrations", "tests"]
+skips = ["B101"]  # assert is a pytest idiom

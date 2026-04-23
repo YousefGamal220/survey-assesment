@@ -1,0 +1,159 @@
+# Production compose: Traefik + backend + frontend behind Let's Encrypt.
+#
+# Layout on the server:
+#   /opt/survey/            ← this repo
+#   /opt/survey-frontend/   ← sibling frontend repo
+#
+# Bring up from /opt/survey:
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# The first run pauses while Traefik issues ACME certs (30–60s). Watch:
+#   docker logs -f traefik
+
+services:
+  # ────────────────────────────────────────────────────────────────────────
+  # Edge — Traefik v3 with automatic HTTPS via Let's Encrypt
+  # ────────────────────────────────────────────────────────────────────────
+  traefik:
+    image: traefik:v3.5
+    restart: unless-stopped
+    # Using the **file provider** instead of Docker labels. The Docker-29 +
+    # Traefik API-version mismatch causes noisy retries that in this setup
+    # prevent router discovery. Two static routes are easier to reason about
+    # than debugging the library compat. See ./traefik/dynamic.yml.
+    command:
+      - "--log.level=INFO"
+      - "--providers.file.filename=/etc/traefik/dynamic.yml"
+      - "--providers.file.watch=true"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.le.acme.httpchallenge=true"
+      - "--certificatesresolvers.le.acme.httpchallenge.entrypoint=web"
+      - "--certificatesresolvers.le.acme.email=${ACME_EMAIL}"
+      - "--certificatesresolvers.le.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+      - traefik_letsencrypt:/letsencrypt
+    networks:
+      - edge
+
+  # ────────────────────────────────────────────────────────────────────────
+  # Backend — Django + DRF
+  # ────────────────────────────────────────────────────────────────────────
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    command: ["web"]
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - edge
+      - internal
+    restart: unless-stopped
+    # Writable staticfiles volume for collectstatic output (app user is non-root).
+    volumes:
+      - staticfiles:/app/staticfiles
+
+  celery:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    command: ["worker"]
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+    restart: unless-stopped
+
+  beat:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    command: ["beat"]
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+    restart: unless-stopped
+    # Celery beat persists its schedule to /var/celery/celerybeat-schedule
+    # (path configured in config.settings.prod). Named volume keeps it across
+    # container restarts and is writable by the non-root app user.
+    volumes:
+      - beat_state:/var/celery
+
+  # ────────────────────────────────────────────────────────────────────────
+  # Frontend — Next.js 16 standalone server
+  # ────────────────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ../survey-frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: "https://${API_HOST}"
+    networks:
+      - edge
+    restart: unless-stopped
+
+  # ────────────────────────────────────────────────────────────────────────
+  # Data — Postgres + Redis, internal network only
+  # ────────────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-survey}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-survey}
+      POSTGRES_DB: ${POSTGRES_DB:-survey}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-survey}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    networks:
+      - internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pg_data:
+  redis_data:
+  traefik_letsencrypt:
+  staticfiles:
+  beat_state:
+
+networks:
+  # Public-facing network — only Traefik, web, and frontend live here.
+  edge:
+    driver: bridge
+  # Back-of-house — postgres, redis, and the Django workers only.
+  internal:
+    driver: bridge
